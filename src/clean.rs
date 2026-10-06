@@ -74,7 +74,7 @@ pub fn hide_zone(gpx: &mut Gpx, home: LatLon, radius: f64) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::stats::tests::track;
+    use crate::stats::tests::{north, track};
 
     fn norths(gpx: &Gpx) -> Vec<f64> {
         gpx.tracks[0].segments[0].points.iter().map(|p| ((p.pos.lat - 51.5) * 111_195.0).round()).collect()
@@ -105,5 +105,40 @@ mod tests {
         // A cyclist at 15 m/s is fine with a ride limit.
         let mut gpx = track(&[(0.0, 0.0, 0.0), (15.0, 1.0, 0.0), (30.0, 2.0, 0.0)]);
         assert_eq!(drop_spikes(&mut gpx, 25.0), 0);
+    }
+
+    fn line(metres: &[f64]) -> Gpx {
+        let pts: Vec<(f64, f64, f64)> = metres.iter().enumerate().map(|(i, &m)| (m, i as f64, 0.0)).collect();
+        track(&pts)
+    }
+
+    #[test]
+    fn trims_both_ends() {
+        let mut gpx = line(&[0.0, 50.0, 150.0, 300.0, 450.0, 550.0, 600.0]);
+        assert_eq!(trim_ends(&mut gpx, 100.0), 4);
+        assert_eq!(norths(&gpx), [150.0, 300.0, 450.0]);
+    }
+
+    #[test]
+    fn trimming_a_loop_keeps_the_middle() {
+        // Out 400 m and back: the far end of the loop is well clear, but the
+        // whole way out and back is near the start, so only the ends go.
+        let mut gpx = line(&[0.0, 50.0, 200.0, 400.0, 200.0, 50.0, 0.0]);
+        assert_eq!(trim_ends(&mut gpx, 100.0), 4);
+        assert_eq!(norths(&gpx), [200.0, 400.0, 200.0]);
+    }
+
+    #[test]
+    fn trimming_everything_leaves_nothing() {
+        let mut gpx = line(&[0.0, 10.0, 20.0]);
+        assert_eq!(trim_ends(&mut gpx, 100.0), 3);
+        assert!(norths(&gpx).is_empty());
+    }
+
+    #[test]
+    fn hides_a_zone_in_the_middle() {
+        let mut gpx = line(&[0.0, 200.0, 480.0, 500.0, 520.0, 800.0]);
+        assert_eq!(hide_zone(&mut gpx, north(500.0), 50.0), 3);
+        assert_eq!(norths(&gpx), [0.0, 200.0, 800.0]);
     }
 }
