@@ -46,3 +46,46 @@ pub fn splits(gpx: &Gpx, every: f64) -> Vec<Split> {
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::geo::Unit;
+    use crate::stats::tests::track;
+
+    fn close(a: f64, b: f64) -> bool {
+        (a - b).abs() < 0.5
+    }
+
+    #[test]
+    fn interpolates_the_boundary() {
+        // 4 m/s for 2500 m, one fix every 100 m.
+        let pts: Vec<_> = (0..=25).map(|i| (i as f64 * 100.0, i as f64 * 25.0, 0.0)).collect();
+        let s = splits(&track(&pts), Unit::Km.metres());
+        assert_eq!(s.len(), 3);
+        assert!(close(s[0].time_s, 250.0) && close(s[1].time_s, 250.0), "{s:?}");
+        assert!(close(s[2].distance_m, 500.0) && close(s[2].time_s, 125.0), "{s:?}");
+    }
+
+    #[test]
+    fn one_long_step_can_cross_several_boundaries() {
+        let s = splits(&track(&[(0.0, 0.0, 0.0), (2000.0, 400.0, 0.0)]), 1000.0);
+        assert_eq!(s.len(), 2);
+        assert!(close(s[0].time_s, 200.0) && close(s[1].time_s, 200.0), "{s:?}");
+    }
+
+    #[test]
+    fn miles() {
+        let pts: Vec<_> = (0..=20).map(|i| (i as f64 * 100.0, i as f64 * 30.0, 0.0)).collect();
+        let s = splits(&track(&pts), Unit::Mile.metres());
+        assert_eq!(s.len(), 2);
+        assert!(close(s[0].time_s, 482.8), "{s:?}");
+    }
+
+    #[test]
+    fn untimed_tracks_have_no_splits() {
+        let mut gpx = track(&[(0.0, 0.0, 0.0), (2000.0, 1.0, 0.0)]);
+        gpx.tracks[0].segments[0].points.iter_mut().for_each(|p| p.time = None);
+        assert!(splits(&gpx, 1000.0).is_empty());
+    }
+}
