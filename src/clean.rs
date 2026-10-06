@@ -1,5 +1,6 @@
 //! Fixing up a track: GPS spikes, private start and end points, pauses.
 
+use crate::geo::LatLon;
 use crate::gpx::{Gpx, Point};
 
 /// Removes fixes that would mean moving faster than `max_speed` metres per
@@ -53,6 +54,19 @@ pub fn trim_ends(gpx: &mut Gpx, radius: f64) -> usize {
             dropped += gone as usize;
             !gone
         });
+    }
+    dropped
+}
+
+/// Removes every point within `radius` metres of `home`, wherever it falls
+/// in the track. Use this when a ride starts somewhere else but passes the
+/// house on the way back. Returns how many points went.
+pub fn hide_zone(gpx: &mut Gpx, home: LatLon, radius: f64) -> usize {
+    let mut dropped = 0;
+    for seg in gpx.tracks.iter_mut().flat_map(|t| &mut t.segments) {
+        let before = seg.points.len();
+        seg.points.retain(|p| p.pos.distance_to(home) >= radius);
+        dropped += before - seg.points.len();
     }
     dropped
 }
