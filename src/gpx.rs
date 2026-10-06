@@ -153,7 +153,14 @@ pub fn read_gpx(text: &str) -> Result<Gpx> {
                     push(&mut gpx, p)?;
                 }
             }
-            Event::Eof => break,
+            Event::Eof => {
+                // quick-xml stops quietly at the end of the text even with tags
+                // still open. That's what a file cut off mid-save looks like.
+                if let Some(tag) = open.last() {
+                    bail!("the file ends before </{}>; it looks cut off", String::from_utf8_lossy(tag));
+                }
+                break;
+            }
             _ => {}
         }
     }
@@ -211,4 +218,69 @@ pub fn write_gpx(gpx: &Gpx) -> String {
     }
     out += "</gpx>\n";
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const GARMIN: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<gpx creator="Garmin Connect" version="1.1" xmlns="http://www.topografix.com/GPX/1/1"
+     xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v1">
+  <metadata><name>Lunch &amp; laps</name><time>2024-05-01T12:00:00Z</time></metadata>
+  <wpt lat="1" lon="2"><name>Not a track</name></wpt>
+  <trk>
+    <name>Park loop</name>
+    <trkseg>
+      <trkpt lat="51.5000000" lon="-0.1200000">
+        <ele>12.4</ele>
+        <time>2024-05-01T12:00:00Z</time>
+        <extensions><gpxtpx:TrackPointExtension><gpxtpx:hr>131</gpxtpx:hr></gpxtpx:TrackPointExtension></extensions>
+      </trkpt>
+      <trkpt lat="51.5001" lon="-0.1201"><ele></ele><time>2024-05-01T12:00:05Z</time></trkpt>
+    </trkseg>
+    <trkseg>
+      <trkpt lat="51.5002" lon="-0.1202"/>
+    </trkseg>
+  </trk>
+</gpx>"#;
+
+    #[test]
+    fn reads_a_garmin_export() {
+        let gpx = read_gpx(GARMIN).unwrap();
+        assert_eq!(gpx.name.as_deref(), Some("Lunch & laps"));
+        assert_eq!(gpx.creator.as_deref(), Some("Garmin Connect"));
+        assert_eq!(gpx.tracks.len(), 1);
+        let track = &gpx.tracks[0];
+        assert_eq!(track.name.as_deref(), Some("Park loop"));
+        assert_eq!(track.segments.len(), 2);
+        let first = &track.segments[0].points[0];
+        assert_eq!(first.ele, Some(12.4));
+        assert_eq!(first.time, crate::time::parse_time("2024-05-01T12:00:00Z"));
+        assert!(first.extensions.as_deref().unwrap().contains("<gpxtpx:hr>131</gpxtpx:hr>"));
+        assert_eq!(track.segments[0].points[1].ele, None);
+        assert_eq!(track.segments[1].points[0].time, None);
+    }
+
+    #[test]
+    fn writes_what_it_read() {
+        let gpx = read_gpx(GARMIN).unwrap();
+        let written = write_gpx(&gpx);
+        assert!(written.contains("xmlns:gpxtpx=\"http://www.garmin.com/xmlschemas/TrackPointExtension/v1\""));
+        assert!(written.contains("<name>Lunch &amp; laps</name>"));
+        assert_eq!(read_gpx(&written).unwrap(), gpx);
+    }
+
+    #[test]
+    fn explains_bad_files() {
+        let err = |s: &str| read_gpx(s).unwrap_err().to_string();
+        assert!(err(r#"<gpx><trk><trkseg><trkpt lon="1"/></trkseg></trk></gpx>"#).contains("no lat"));
+        assert!(err(r#"<gpx><trk><trkseg><trkpt lat="95" lon="1"/></trkseg></trk></gpx>"#).contains("off the map"));
+        assert!(err(r#"<gpx><trk><trkpt lat="1" lon="1"/></trk></gpx>"#).contains("outside any track segment"));
+        assert!(
+            err(r#"<gpx><trk><trkseg><trkpt lat="1" lon="1"><time>soon</time></trkpt></trkseg></trk></gpx>"#)
+                .contains("\"soon\" isn't a time")
+        );
+        assert!(err("<gpx><trk><trkseg><trkpt lat=\"1\" lon=\"1\">").contains("ends before </trkpt>"));
+    }
 }
