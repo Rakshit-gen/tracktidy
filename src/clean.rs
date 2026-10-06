@@ -71,6 +71,43 @@ pub fn hide_zone(gpx: &mut Gpx, home: LatLon, radius: f64) -> usize {
     dropped
 }
 
+/// Collapses stops. While you wait at a light the watch keeps logging, and
+/// the fixes wander a few metres around where you stand, which adds false
+/// distance. Any run of points that stays within `radius` metres of its
+/// first point for at least `min_s` seconds is cut down to its first and
+/// last point. Returns how many points went.
+pub fn collapse_pauses(gpx: &mut Gpx, radius: f64, min_s: f64) -> usize {
+    let mut dropped = 0;
+    for seg in gpx.tracks.iter_mut().flat_map(|t| &mut t.segments) {
+        let pts = std::mem::take(&mut seg.points);
+        let mut kept = Vec::with_capacity(pts.len());
+        let mut i = 0;
+        while i < pts.len() {
+            let anchor = pts[i].pos;
+            let mut j = i + 1;
+            while j < pts.len() && pts[j].pos.distance_to(anchor) < radius {
+                j += 1;
+            }
+            // pts[i..j] all sit near the anchor.
+            let long = match (pts[i].time, pts[j - 1].time) {
+                (Some(a), Some(b)) => b - a >= min_s,
+                _ => false,
+            };
+            if long && j - i > 2 {
+                dropped += j - i - 2;
+                kept.push(pts[i].clone());
+                kept.push(pts[j - 1].clone());
+                i = j;
+            } else {
+                kept.push(pts[i].clone());
+                i += 1;
+            }
+        }
+        seg.points = kept;
+    }
+    dropped
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -140,5 +177,25 @@ mod tests {
         let mut gpx = line(&[0.0, 200.0, 480.0, 500.0, 520.0, 800.0]);
         assert_eq!(hide_zone(&mut gpx, north(500.0), 50.0), 3);
         assert_eq!(norths(&gpx), [0.0, 200.0, 800.0]);
+    }
+
+    #[test]
+    fn collapses_a_long_stop() {
+        let mut gpx = track(&[
+            (0.0, 0.0, 0.0),
+            (10.0, 3.0, 0.0),
+            (12.0, 20.0, 0.0),
+            (9.0, 40.0, 0.0),
+            (11.0, 60.0, 0.0),
+            (40.0, 70.0, 0.0),
+        ]);
+        assert_eq!(collapse_pauses(&mut gpx, 5.0, 30.0), 2);
+        assert_eq!(norths(&gpx), [0.0, 10.0, 11.0, 40.0]);
+    }
+
+    #[test]
+    fn leaves_a_short_stop() {
+        let mut gpx = track(&[(0.0, 0.0, 0.0), (1.0, 5.0, 0.0), (2.0, 10.0, 0.0), (30.0, 20.0, 0.0)]);
+        assert_eq!(collapse_pauses(&mut gpx, 5.0, 30.0), 0);
     }
 }
