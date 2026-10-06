@@ -63,3 +63,62 @@ pub fn parse_time(s: &str) -> Option<Seconds> {
     let days = days_from_civil(y, mo, d);
     Some((days * 86_400 + h * 3600 + mi * 60 + sec - offset) as f64 + frac)
 }
+
+/// Formats seconds since the epoch back to "YYYY-MM-DDTHH:MM:SSZ", keeping
+/// milliseconds only when there are some.
+pub fn format_time(t: Seconds) -> String {
+    let whole = t.floor() as i64;
+    let millis = ((t - t.floor()) * 1000.0).round() as i64;
+    let (days, secs) = (whole.div_euclid(86_400), whole.rem_euclid(86_400));
+    // civil_from_days, the inverse of days_from_civil above.
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    let (h, mi, s) = (secs / 3600, secs % 3600 / 60, secs % 60);
+    if millis > 0 {
+        format!("{y:04}-{m:02}-{d:02}T{h:02}:{mi:02}:{s:02}.{millis:03}Z")
+    } else {
+        format!("{y:04}-{m:02}-{d:02}T{h:02}:{mi:02}:{s:02}Z")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_utc_times() {
+        assert_eq!(parse_time("1970-01-01T00:00:00Z"), Some(0.0));
+        assert_eq!(parse_time("2024-05-01T07:02:03Z"), Some(1_714_546_923.0));
+        // 2024 is a leap year.
+        assert_eq!(parse_time("2024-03-01T00:00:00Z").unwrap() - parse_time("2024-02-28T00:00:00Z").unwrap(), 172_800.0);
+    }
+
+    #[test]
+    fn reads_fractions_and_offsets() {
+        assert_eq!(parse_time("2024-05-01T07:02:03.250Z"), Some(1_714_546_923.25));
+        assert_eq!(parse_time("2024-05-01T09:02:03+02:00"), Some(1_714_546_923.0));
+        assert_eq!(parse_time("2024-05-01T01:32:03-0530"), Some(1_714_546_923.0));
+        assert_eq!(parse_time("2024-05-01T07:02:03"), Some(1_714_546_923.0));
+    }
+
+    #[test]
+    fn rejects_garbage() {
+        for s in ["", "yesterday", "2024-13-01T00:00:00Z", "2024-05-01T25:00:00Z", "2024-05-01T07:02:03.Z", "2024-05-01T07:02:03+2"] {
+            assert_eq!(parse_time(s), None, "{s}");
+        }
+    }
+
+    #[test]
+    fn formats_round_trip() {
+        for s in ["2024-05-01T07:02:03Z", "1999-12-31T23:59:59Z", "2024-02-29T12:00:00.500Z"] {
+            assert_eq!(format_time(parse_time(s).unwrap()), s);
+        }
+    }
+}
