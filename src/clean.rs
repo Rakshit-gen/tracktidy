@@ -31,6 +31,32 @@ pub fn drop_spikes(gpx: &mut Gpx, max_speed: f64) -> usize {
     dropped
 }
 
+/// Removes points within `radius` metres of where the track starts and of
+/// where it ends, so a shared track doesn't show which door you left from.
+/// Only the opening and closing stretches are cut: passing the start again
+/// in the middle of a loop is left alone. Returns how many points went.
+pub fn trim_ends(gpx: &mut Gpx, radius: f64) -> usize {
+    let all: Vec<&Point> = gpx.tracks.iter().flat_map(|t| &t.segments).flat_map(|s| &s.points).collect();
+    let (Some(first), Some(last)) = (all.first().map(|p| p.pos), all.last().map(|p| p.pos)) else {
+        return 0;
+    };
+    let total = all.len();
+    let head = all.iter().take_while(|p| p.pos.distance_to(first) < radius).count();
+    let tail = all.iter().rev().take_while(|p| p.pos.distance_to(last) < radius).count();
+    let cut = |i: usize| i < head || i >= total.saturating_sub(tail);
+    let mut i = 0;
+    let mut dropped = 0;
+    for seg in gpx.tracks.iter_mut().flat_map(|t| &mut t.segments) {
+        seg.points.retain(|_| {
+            let gone = cut(i);
+            i += 1;
+            dropped += gone as usize;
+            !gone
+        });
+    }
+    dropped
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
