@@ -128,6 +128,10 @@ fn main() -> Result<()> {
             if let Some(home) = home {
                 note(clean::hide_zone(&mut gpx, home, home_radius), "near home");
             }
+            clean::prune_empty(&mut gpx);
+            if gpx.tracks.is_empty() {
+                anyhow::bail!("cleaning removed every point, so nothing was written; try a smaller --trim or --home-radius");
+            }
             let after = stats(&gpx, &settings);
             if report.is_empty() {
                 eprintln!("Nothing to clean.");

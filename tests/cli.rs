@@ -73,3 +73,12 @@ fn stats_as_json() {
     let s = text(&run(&["stats", SAMPLE, "--json"]).stdout);
     assert!(s.starts_with("{\"points\":556,\"distance_m\":6027.1,"), "{s}");
 }
+
+#[test]
+fn cleaning_away_everything_writes_nothing() {
+    let path = scratch("empty.gpx");
+    let out = run(&["clean", SAMPLE, "--trim", "5000", "-o", path.to_str().unwrap()]);
+    assert!(!out.status.success());
+    assert!(text(&out.stderr).contains("removed every point"));
+    assert!(!path.exists());
+}

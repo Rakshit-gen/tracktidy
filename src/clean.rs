@@ -130,6 +130,15 @@ pub fn drop_time_glitches(gpx: &mut Gpx) -> usize {
     dropped
 }
 
+/// Drops segments that cleaning left empty, then tracks with no segments
+/// left, so the output doesn't carry hollow <trkseg> elements.
+pub fn prune_empty(gpx: &mut Gpx) {
+    for track in &mut gpx.tracks {
+        track.segments.retain(|s| !s.points.is_empty());
+    }
+    gpx.tracks.retain(|t| !t.segments.is_empty());
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
