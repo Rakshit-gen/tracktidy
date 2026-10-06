@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
 use tracktidy::clean;
 use tracktidy::geo::Unit;
@@ -21,6 +21,8 @@ enum Command {
     /// Distance, time, climbing and speed for a track
     Stats {
         file: PathBuf,
+        #[arg(long, value_enum, default_value_t = Sport::Run)]
+        sport: Sport,
     },
     /// Remove GPS spikes, stops and the private ends of a track
     Clean {
@@ -28,9 +30,11 @@ enum Command {
         /// Where to write the result [default: next to the input, as NAME.clean.gpx]
         #[arg(short, long)]
         output: Option<PathBuf>,
-        /// Fastest believable speed in km/h; faster jumps are dropped as spikes
-        #[arg(long, default_value_t = 45.0)]
-        max_speed: f64,
+        #[arg(long, value_enum, default_value_t = Sport::Run)]
+        sport: Sport,
+        /// Fastest believable speed in km/h; faster jumps are dropped as spikes [default: set by --sport]
+        #[arg(long)]
+        max_speed: Option<f64>,
         /// Cut this many metres off the start and end of the track
         #[arg(long, default_value_t = 0.0)]
         trim: f64,
@@ -47,15 +51,46 @@ enum Command {
     },
 }
 
+/// What the track was, which decides what counts as moving and how fast is
+/// too fast to be real.
+#[derive(Clone, Copy, ValueEnum)]
+enum Sport {
+    Walk,
+    Run,
+    Ride,
+}
+
+impl Sport {
+    fn settings(self) -> Settings {
+        let min_moving_speed = match self {
+            Sport::Walk => 0.3,
+            Sport::Run => 0.5,
+            Sport::Ride => 1.0,
+        };
+        Settings { min_moving_speed, ..Settings::default() }
+    }
+
+    /// km/h. Generous on purpose: a sprint finish or a fast descent is real.
+    fn max_speed(self) -> f64 {
+        match self {
+            Sport::Walk => 15.0,
+            Sport::Run => 30.0,
+            Sport::Ride => 90.0,
+        }
+    }
+}
+
 fn main() -> Result<()> {
     match Cli::parse().command {
-        Command::Stats { file } => {
+        Command::Stats { file, sport } => {
             let gpx = load(&file)?;
-            print!("{}", describe(&stats(&gpx, &Settings::default())));
+            print!("{}", describe(&stats(&gpx, &sport.settings())));
         }
-        Command::Clean { file, output, max_speed, trim, keep_pauses } => {
+        Command::Clean { file, output, sport, max_speed, trim, keep_pauses } => {
             let mut gpx = load(&file)?;
-            let before = stats(&gpx, &Settings::default());
+            let settings = sport.settings();
+            let max_speed = max_speed.unwrap_or(sport.max_speed());
+            let before = stats(&gpx, &settings);
             let mut report = Vec::new();
             let mut note = |n: usize, what: &str| {
                 if n > 0 {
@@ -70,7 +105,7 @@ fn main() -> Result<()> {
             if trim > 0.0 {
                 note(clean::trim_ends(&mut gpx, trim), "near the start and end");
             }
-            let after = stats(&gpx, &Settings::default());
+            let after = stats(&gpx, &settings);
             if report.is_empty() {
                 eprintln!("Nothing to clean.");
             } else {
