@@ -20,7 +20,9 @@ struct Cli {
 enum Command {
     /// Distance, time, climbing and speed for a track
     Stats {
+        /// The GPX file to read
         file: PathBuf,
+        /// What the track was; sets the spike limit and what counts as moving
         #[arg(long, value_enum, default_value_t = Sport::Run)]
         sport: Sport,
         /// Show distance and pace in miles
@@ -32,10 +34,12 @@ enum Command {
     },
     /// Remove GPS spikes, stops and the private ends of a track
     Clean {
+        /// The GPX file to read
         file: PathBuf,
         /// Where to write the result [default: next to the input, as NAME.clean.gpx]
         #[arg(short, long)]
         output: Option<PathBuf>,
+        /// What the track was; sets the spike limit and what counts as moving
         #[arg(long, value_enum, default_value_t = Sport::Run)]
         sport: Sport,
         /// Fastest believable speed in km/h; faster jumps are dropped as spikes [default: set by --sport]
@@ -56,6 +60,7 @@ enum Command {
     },
     /// Time and pace for each kilometre or mile
     Splits {
+        /// The GPX file to read
         file: PathBuf,
         /// Split by mile instead of kilometre
         #[arg(long)]
