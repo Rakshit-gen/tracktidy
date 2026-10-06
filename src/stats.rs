@@ -14,6 +14,9 @@ pub struct Stats {
     /// Time spent actually moving. Stops at lights, photo breaks and the
     /// minute you stood around before pressing start don't count.
     pub moving_s: Option<f64>,
+    /// Metres climbed and descended. None when no point has an elevation.
+    pub gain_m: Option<f64>,
+    pub loss_m: Option<f64>,
 }
 
 /// Thresholds that depend on what kind of activity the track is.
@@ -25,6 +28,11 @@ pub struct Settings {
     /// A gap between fixes longer than this, in seconds, is a pause (the
     /// watch was stopped or lost signal) and isn't counted as moving.
     pub max_gap_s: f64,
+    /// Elevation has to move this many metres from the last counted level
+    /// before it's counted as climbing or descending. GPS elevation wobbles by
+    /// a metre or two from fix to fix, and adding up every wobble can double
+    /// the climb on a flat run.
+    pub climb_threshold_m: f64,
 }
 
 impl Default for Settings {
@@ -32,6 +40,7 @@ impl Default for Settings {
         Settings {
             min_moving_speed: 0.5,
             max_gap_s: 60.0,
+            climb_threshold_m: 3.0,
         }
     }
 }
@@ -45,6 +54,8 @@ pub fn stats(gpx: &Gpx, settings: &Settings) -> Stats {
     let mut s = Stats::default();
     let mut moving = 0.0;
     let mut timed = false;
+    let mut level: Option<f64> = None;
+    let (mut gain, mut loss) = (0.0, 0.0);
     let mut first_time = None;
     let mut last_time = None;
     for seg in segments(gpx) {
@@ -61,6 +72,20 @@ pub fn stats(gpx: &Gpx, settings: &Settings) -> Stats {
             }
         }
         for p in seg {
+            if let Some(ele) = p.ele {
+                match level {
+                    None => level = Some(ele),
+                    Some(l) if ele - l >= settings.climb_threshold_m => {
+                        gain += ele - l;
+                        level = Some(ele);
+                    }
+                    Some(l) if l - ele >= settings.climb_threshold_m => {
+                        loss += l - ele;
+                        level = Some(ele);
+                    }
+                    _ => {}
+                }
+            }
             if let Some(t) = p.time {
                 first_time = Some(first_time.map_or(t, |f: f64| f.min(t)));
                 last_time = Some(last_time.map_or(t, |l: f64| l.max(t)));
@@ -69,5 +94,9 @@ pub fn stats(gpx: &Gpx, settings: &Settings) -> Stats {
     }
     s.elapsed_s = first_time.zip(last_time).map(|(f, l)| l - f);
     s.moving_s = timed.then_some(moving);
+    if level.is_some() {
+        s.gain_m = Some(gain);
+        s.loss_m = Some(loss);
+    }
     s
 }
