@@ -91,6 +91,9 @@ fn main() -> Result<()> {
             let settings = sport.settings();
             let max_speed = max_speed.unwrap_or(sport.max_speed());
             let before = stats(&gpx, &settings);
+            if before.elapsed_s.is_none() {
+                eprintln!("This track has no times (a planned route?), so spikes and stops can't be told apart.");
+            }
             let mut report = Vec::new();
             let mut note = |n: usize, what: &str| {
                 if n > 0 {
