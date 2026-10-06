@@ -20,10 +20,12 @@ fn num<T: std::str::FromStr>(s: &str, range: std::ops::Range<usize>) -> Option<T
     s.get(range)?.parse().ok()
 }
 
-/// Parses "YYYY-MM-DDTHH:MM:SSZ".
+/// Parses "YYYY-MM-DDTHH:MM:SS", with optional fractional seconds and an
+/// optional zone: "Z", "+02:00" or "-0530". No zone is read as UTC, which is
+/// what the GPX spec requires anyway; some phone apps just leave the Z off.
 pub fn parse_time(s: &str) -> Option<Seconds> {
     let s = s.trim();
-    if s.len() < 20 || &s[4..5] != "-" || &s[7..8] != "-" || !matches!(&s[10..11], "T" | " ") || !s.ends_with('Z') {
+    if s.len() < 19 || &s[4..5] != "-" || &s[7..8] != "-" || !matches!(&s[10..11], "T" | " ") {
         return None;
     }
     let (y, mo, d): (i64, u32, u32) = (num(s, 0..4)?, num(s, 5..7)?, num(s, 8..10)?);
@@ -31,6 +33,33 @@ pub fn parse_time(s: &str) -> Option<Seconds> {
     if !(1..=12).contains(&mo) || !(1..=31).contains(&d) || h > 23 || mi > 59 || sec > 60 {
         return None;
     }
+    let mut rest = &s[19..];
+    let mut frac = 0.0;
+    if let Some(after_dot) = rest.strip_prefix('.') {
+        let digits = after_dot.chars().take_while(|c| c.is_ascii_digit()).count();
+        if digits == 0 {
+            return None;
+        }
+        frac = format!("0.{}", &after_dot[..digits]).parse().ok()?;
+        rest = &after_dot[digits..];
+    }
+    let offset = match rest {
+        "" | "Z" | "z" => 0,
+        _ => {
+            let sign = match &rest[..1] {
+                "+" => 1,
+                "-" => -1,
+                _ => return None,
+            };
+            let digits: String = rest[1..].chars().filter(|c| *c != ':').collect();
+            if digits.len() != 4 || !digits.chars().all(|c| c.is_ascii_digit()) {
+                return None;
+            }
+            let oh: i64 = digits[..2].parse().ok()?;
+            let om: i64 = digits[2..].parse().ok()?;
+            sign * (oh * 3600 + om * 60)
+        }
+    };
     let days = days_from_civil(y, mo, d);
-    Some((days * 86_400 + h * 3600 + mi * 60 + sec) as f64)
+    Some((days * 86_400 + h * 3600 + mi * 60 + sec - offset) as f64 + frac)
 }
