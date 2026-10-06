@@ -30,3 +30,40 @@ pub fn drop_spikes(gpx: &mut Gpx, max_speed: f64) -> usize {
     }
     dropped
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::stats::tests::track;
+
+    fn norths(gpx: &Gpx) -> Vec<f64> {
+        gpx.tracks[0].segments[0].points.iter().map(|p| ((p.pos.lat - 51.5) * 111_195.0).round()).collect()
+    }
+
+    #[test]
+    fn drops_a_lone_spike() {
+        let mut gpx = track(&[(0.0, 0.0, 0.0), (3.0, 1.0, 0.0), (400.0, 2.0, 0.0), (9.0, 3.0, 0.0), (12.0, 4.0, 0.0)]);
+        assert_eq!(drop_spikes(&mut gpx, 10.0), 1);
+        assert_eq!(norths(&gpx), [0.0, 3.0, 9.0, 12.0]);
+    }
+
+    #[test]
+    fn drops_a_run_of_bad_fixes() {
+        let mut gpx = track(&[
+            (0.0, 0.0, 0.0),
+            (300.0, 1.0, 0.0),
+            (305.0, 2.0, 0.0),
+            (9.0, 3.0, 0.0),
+            (12.0, 4.0, 0.0),
+        ]);
+        assert_eq!(drop_spikes(&mut gpx, 10.0), 2);
+        assert_eq!(norths(&gpx), [0.0, 9.0, 12.0]);
+    }
+
+    #[test]
+    fn keeps_fast_but_possible_movement() {
+        // A cyclist at 15 m/s is fine with a ride limit.
+        let mut gpx = track(&[(0.0, 0.0, 0.0), (15.0, 1.0, 0.0), (30.0, 2.0, 0.0)]);
+        assert_eq!(drop_spikes(&mut gpx, 25.0), 0);
+    }
+}
