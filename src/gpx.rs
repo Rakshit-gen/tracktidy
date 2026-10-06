@@ -87,7 +87,7 @@ pub fn read_gpx(text: &str) -> Result<Gpx> {
                     .unwrap_or_else(|_| raw.trim().to_string());
                 match open.last().map(Vec::as_slice) {
                     Some(b"metadata") => gpx.name = Some(name),
-                    Some(b"trk") => {
+                    Some(b"trk" | b"rte") => {
                         if let Some(track) = gpx.tracks.last_mut() {
                             track.name = Some(name);
                         }
@@ -119,12 +119,18 @@ pub fn read_gpx(text: &str) -> Result<Gpx> {
         }
         match event {
             Event::Start(e) | Event::Empty(e) if e.local_name().as_ref() == b"trk" => gpx.tracks.push(Track::default()),
+            // A route is a planned line with no recording breaks, so it reads
+            // as a track with one segment.
+            Event::Start(e) | Event::Empty(e) if e.local_name().as_ref() == b"rte" => gpx.tracks.push(Track {
+                name: None,
+                segments: vec![Segment::default()],
+            }),
             Event::Start(e) if e.local_name().as_ref() == b"trkseg" => {
                 let track = gpx.tracks.last_mut().context("a track segment sits outside any track")?;
                 track.segments.push(Segment::default());
             }
-            Event::Start(e) if e.local_name().as_ref() == b"trkpt" => point = Some(start_point(&e)?),
-            Event::Empty(e) if e.local_name().as_ref() == b"trkpt" => push(&mut gpx, start_point(&e)?)?,
+            Event::Start(e) if is_point(&e) => point = Some(start_point(&e)?),
+            Event::Empty(e) if is_point(&e) => push(&mut gpx, start_point(&e)?)?,
             Event::Start(e) if point.is_some() && e.local_name().as_ref() == b"ele" => {
                 let text = reader.read_text(e.name())?;
                 // read_text swallowed the closing tag, so close it here too.
@@ -148,7 +154,7 @@ pub fn read_gpx(text: &str) -> Result<Gpx> {
                     point.as_mut().unwrap().extensions = Some(raw);
                 }
             }
-            Event::End(e) if e.local_name().as_ref() == b"trkpt" => {
+            Event::End(e) if matches!(e.local_name().as_ref(), b"trkpt" | b"rtept") => {
                 if let Some(p) = point.take() {
                     push(&mut gpx, p)?;
                 }
@@ -167,6 +173,10 @@ pub fn read_gpx(text: &str) -> Result<Gpx> {
     Ok(gpx)
 }
 
+fn is_point(e: &BytesStart) -> bool {
+    matches!(e.local_name().as_ref(), b"trkpt" | b"rtept")
+}
+
 fn push(gpx: &mut Gpx, p: Point) -> Result<()> {
     let segment = gpx
         .tracks
@@ -177,8 +187,9 @@ fn push(gpx: &mut Gpx, p: Point) -> Result<()> {
     Ok(())
 }
 
-/// Writes a GPX 1.1 file. Waypoints, routes and other metadata in the original
-/// aren't carried over; tracks, names, elevation, times and point extensions are.
+/// Writes a GPX 1.1 file. Waypoints and other metadata in the original aren't
+/// carried over; tracks, names, elevation, times and point extensions are.
+/// Routes that were read in come back out as tracks.
 pub fn write_gpx(gpx: &Gpx) -> String {
     use quick_xml::escape::escape;
     let mut out = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
@@ -282,5 +293,18 @@ mod tests {
                 .contains("\"soon\" isn't a time")
         );
         assert!(err("<gpx><trk><trkseg><trkpt lat=\"1\" lon=\"1\">").contains("ends before </trkpt>"));
+    }
+
+    #[test]
+    fn reads_a_route_as_a_track() {
+        let gpx = read_gpx(
+            r#"<gpx version="1.1"><rte><name>Loop</name><rtept lat="1" lon="2"><ele>5</ele></rtept><rtept lat="1.001" lon="2"/></rte></gpx>"#,
+        )
+        .unwrap();
+        assert_eq!(gpx.tracks.len(), 1);
+        assert_eq!(gpx.tracks[0].name.as_deref(), Some("Loop"));
+        let pts = &gpx.tracks[0].segments[0].points;
+        assert_eq!(pts.len(), 2);
+        assert_eq!(pts[0].ele, Some(5.0));
     }
 }
