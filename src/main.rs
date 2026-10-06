@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 
 use tracktidy::clean;
-use tracktidy::geo::Unit;
+use tracktidy::geo::{LatLon, Unit};
 use tracktidy::splits::splits;
 use tracktidy::gpx::{Gpx, read_gpx, write_gpx};
 use tracktidy::stats::{Settings, Stats, stats};
@@ -38,6 +38,12 @@ enum Command {
         /// Cut this many metres off the start and end of the track
         #[arg(long, default_value_t = 0.0)]
         trim: f64,
+        /// Remove every point near this spot, given as "lat,lon"
+        #[arg(long, value_parser = parse_latlon, allow_hyphen_values = true)]
+        home: Option<LatLon>,
+        /// How far around --home to clear, in metres
+        #[arg(long, default_value_t = 200.0)]
+        home_radius: f64,
         /// Leave stops as they are instead of collapsing them
         #[arg(long)]
         keep_pauses: bool,
@@ -86,7 +92,7 @@ fn main() -> Result<()> {
             let gpx = load(&file)?;
             print!("{}", describe(&stats(&gpx, &sport.settings())));
         }
-        Command::Clean { file, output, sport, max_speed, trim, keep_pauses } => {
+        Command::Clean { file, output, sport, max_speed, trim, home, home_radius, keep_pauses } => {
             let mut gpx = load(&file)?;
             let settings = sport.settings();
             let max_speed = max_speed.unwrap_or(sport.max_speed());
@@ -107,6 +113,9 @@ fn main() -> Result<()> {
             }
             if trim > 0.0 {
                 note(clean::trim_ends(&mut gpx, trim), "near the start and end");
+            }
+            if let Some(home) = home {
+                note(clean::hide_zone(&mut gpx, home, home_radius), "near home");
             }
             let after = stats(&gpx, &settings);
             if report.is_empty() {
@@ -146,6 +155,18 @@ fn main() -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// "51.5074,-0.1278" with optional spaces after the comma.
+fn parse_latlon(s: &str) -> Result<LatLon, String> {
+    let bad = || format!("expected \"lat,lon\" in decimal degrees, like 51.5074,-0.1278, not \"{s}\"");
+    let (lat, lon) = s.split_once(',').ok_or_else(bad)?;
+    let lat: f64 = lat.trim().parse().map_err(|_| bad())?;
+    let lon: f64 = lon.trim().parse().map_err(|_| bad())?;
+    if !(-90.0..=90.0).contains(&lat) || !(-180.0..=180.0).contains(&lon) {
+        return Err(format!("{lat},{lon} is off the map; latitude comes first"));
+    }
+    Ok(LatLon { lat, lon })
 }
 
 fn load(path: &Path) -> Result<Gpx> {
