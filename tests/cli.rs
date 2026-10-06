@@ -67,3 +67,9 @@ fn a_missing_file_says_so() {
     assert!(!out.status.success());
     assert!(text(&out.stderr).contains("couldn't read no-such-file.gpx"));
 }
+
+#[test]
+fn stats_as_json() {
+    let s = text(&run(&["stats", SAMPLE, "--json"]).stdout);
+    assert!(s.starts_with("{\"points\":556,\"distance_m\":6027.1,"), "{s}");
+}

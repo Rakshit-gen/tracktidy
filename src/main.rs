@@ -23,6 +23,9 @@ enum Command {
         file: PathBuf,
         #[arg(long, value_enum, default_value_t = Sport::Run)]
         sport: Sport,
+        /// Print the numbers as JSON, in metres and seconds
+        #[arg(long)]
+        json: bool,
     },
     /// Remove GPS spikes, stops and the private ends of a track
     Clean {
@@ -88,9 +91,14 @@ impl Sport {
 
 fn main() -> Result<()> {
     match Cli::parse().command {
-        Command::Stats { file, sport } => {
+        Command::Stats { file, sport, json } => {
             let gpx = load(&file)?;
-            print!("{}", describe(&stats(&gpx, &sport.settings())));
+            let s = stats(&gpx, &sport.settings());
+            if json {
+                println!("{}", to_json(&s));
+            } else {
+                print!("{}", describe(&s));
+            }
         }
         Command::Clean { file, output, sport, max_speed, trim, home, home_radius, keep_pauses } => {
             let mut gpx = load(&file)?;
@@ -179,6 +187,20 @@ fn clock(seconds: f64) -> String {
     let s = seconds.round() as u64;
     let (h, m, s) = (s / 3600, s % 3600 / 60, s % 60);
     if h > 0 { format!("{h}:{m:02}:{s:02}") } else { format!("{m}:{s:02}") }
+}
+
+fn to_json(s: &Stats) -> String {
+    let num = |v: Option<f64>| v.map_or("null".to_string(), |v| format!("{v:.1}"));
+    format!(
+        "{{\"points\":{},\"distance_m\":{:.1},\"elapsed_s\":{},\"moving_s\":{},\"gain_m\":{},\"loss_m\":{},\"max_speed_mps\":{}}}",
+        s.points,
+        s.distance_m,
+        num(s.elapsed_s),
+        num(s.moving_s),
+        num(s.gain_m),
+        num(s.loss_m),
+        num(s.max_speed)
+    )
 }
 
 fn describe(s: &Stats) -> String {
