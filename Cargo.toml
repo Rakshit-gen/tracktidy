@@ -1,0 +1,12 @@
+[package]
+name = "tracktidy"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Clean up GPX tracks before you share them: hide your front door, drop GPS spikes, get honest stats"
+license = "MIT"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+quick-xml = "0.41"
