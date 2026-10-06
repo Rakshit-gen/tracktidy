@@ -38,6 +38,9 @@ pub struct Gpx {
     pub name: Option<String>,
     /// The app or device that wrote the file, from the creator attribute.
     pub creator: Option<String>,
+    /// xmlns:prefix declarations from the root, which the kept extensions need
+    /// (Garmin's heart rate lives under gpxtpx:, for example).
+    pub namespaces: Vec<(String, String)>,
     pub tracks: Vec<Track>,
 }
 
@@ -94,8 +97,15 @@ pub fn read_gpx(text: &str) -> Result<Gpx> {
                 continue;
             }
             Event::Start(e) if e.local_name().as_ref() == b"gpx" => {
-                if let Some(creator) = e.try_get_attribute(b"creator")? {
-                    gpx.creator = Some(creator.normalized_value(XmlVersion::Explicit1_0)?.into_owned());
+                for attr in e.attributes() {
+                    let attr = attr?;
+                    let key = String::from_utf8_lossy(attr.key.as_ref()).into_owned();
+                    let value = attr.normalized_value(XmlVersion::Explicit1_0)?.into_owned();
+                    if key == "creator" {
+                        gpx.creator = Some(value);
+                    } else if key.starts_with("xmlns:") {
+                        gpx.namespaces.push((key, value));
+                    }
                 }
             }
             _ => {}
@@ -158,4 +168,47 @@ fn push(gpx: &mut Gpx, p: Point) -> Result<()> {
         .context("a track point sits outside any track segment")?;
     segment.points.push(p);
     Ok(())
+}
+
+/// Writes a GPX 1.1 file. Waypoints, routes and other metadata in the original
+/// aren't carried over; tracks, names, elevation, times and point extensions are.
+pub fn write_gpx(gpx: &Gpx) -> String {
+    use quick_xml::escape::escape;
+    let mut out = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+    out += "<gpx version=\"1.1\" creator=\"";
+    out += &escape(gpx.creator.as_deref().unwrap_or("tracktidy"));
+    out += "\" xmlns=\"http://www.topografix.com/GPX/1/1\"";
+    for (key, value) in &gpx.namespaces {
+        out += &format!(" {key}=\"{}\"", escape(value.as_str()));
+    }
+    out += ">\n";
+    if let Some(name) = &gpx.name {
+        out += &format!("  <metadata>\n    <name>{}</name>\n  </metadata>\n", escape(name.as_str()));
+    }
+    for track in &gpx.tracks {
+        out += "  <trk>\n";
+        if let Some(name) = &track.name {
+            out += &format!("    <name>{}</name>\n", escape(name.as_str()));
+        }
+        for segment in &track.segments {
+            out += "    <trkseg>\n";
+            for p in &segment.points {
+                out += &format!("      <trkpt lat=\"{:.7}\" lon=\"{:.7}\">", p.pos.lat, p.pos.lon);
+                if let Some(ele) = p.ele {
+                    out += &format!("<ele>{ele:.1}</ele>");
+                }
+                if let Some(t) = p.time {
+                    out += &format!("<time>{}</time>", crate::time::format_time(t));
+                }
+                if let Some(ext) = &p.extensions {
+                    out += &format!("<extensions>{ext}</extensions>");
+                }
+                out += "</trkpt>\n";
+            }
+            out += "    </trkseg>\n";
+        }
+        out += "  </trk>\n";
+    }
+    out += "</gpx>\n";
+    out
 }
