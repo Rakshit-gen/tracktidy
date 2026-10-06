@@ -24,11 +24,16 @@ pub struct Segment {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Track {
+    pub name: Option<String>,
     pub segments: Vec<Segment>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Gpx {
+    /// The name in the file's metadata, if it has one.
+    pub name: Option<String>,
+    /// The app or device that wrote the file, from the creator attribute.
+    pub creator: Option<String>,
     pub tracks: Vec<Track>,
 }
 
@@ -56,8 +61,44 @@ pub fn read_gpx(text: &str) -> Result<Gpx> {
     reader.config_mut().trim_text(true);
     let mut gpx = Gpx::default();
     let mut point: Option<Point> = None;
+    // Names of the open elements, so a <name> can tell whether it belongs to
+    // the file's metadata, a track, or something we don't keep, like a waypoint.
+    let mut open: Vec<Vec<u8>> = Vec::new();
     loop {
-        match reader.read_event().context("the GPX isn't valid XML")? {
+        let event = reader.read_event().context("the GPX isn't valid XML")?;
+        match &event {
+            Event::Start(e) if e.local_name().as_ref() == b"name" => {
+                let raw = reader.read_text(e.name())?;
+                let raw = raw.decode()?;
+                let name = quick_xml::escape::unescape(raw.trim())
+                    .map(|n| n.into_owned())
+                    .unwrap_or_else(|_| raw.trim().to_string());
+                match open.last().map(Vec::as_slice) {
+                    Some(b"metadata") => gpx.name = Some(name),
+                    Some(b"trk") => {
+                        if let Some(track) = gpx.tracks.last_mut() {
+                            track.name = Some(name);
+                        }
+                    }
+                    _ => {}
+                }
+                continue;
+            }
+            Event::Start(e) if e.local_name().as_ref() == b"gpx" => {
+                if let Some(creator) = e.try_get_attribute(b"creator")? {
+                    gpx.creator = Some(creator.normalized_value(XmlVersion::Explicit1_0)?.into_owned());
+                }
+            }
+            _ => {}
+        }
+        match &event {
+            Event::Start(e) => open.push(e.local_name().as_ref().to_vec()),
+            Event::End(_) => {
+                open.pop();
+            }
+            _ => {}
+        }
+        match event {
             Event::Start(e) | Event::Empty(e) if e.local_name().as_ref() == b"trk" => gpx.tracks.push(Track::default()),
             Event::Start(e) if e.local_name().as_ref() == b"trkseg" => {
                 let track = gpx.tracks.last_mut().context("a track segment sits outside any track")?;
@@ -67,12 +108,15 @@ pub fn read_gpx(text: &str) -> Result<Gpx> {
             Event::Empty(e) if e.local_name().as_ref() == b"trkpt" => push(&mut gpx, start_point(&e)?)?,
             Event::Start(e) if point.is_some() && e.local_name().as_ref() == b"ele" => {
                 let text = reader.read_text(e.name())?;
+                // read_text swallowed the closing tag, so close it here too.
+                open.pop();
                 let p = point.as_mut().unwrap();
                 // A blank or broken elevation is common in phone exports; treat it as missing.
                 p.ele = text.decode()?.trim().parse().ok();
             }
             Event::Start(e) if point.is_some() && e.local_name().as_ref() == b"time" => {
                 let text = reader.read_text(e.name())?;
+                open.pop();
                 let raw = text.decode()?;
                 let p = point.as_mut().unwrap();
                 p.time = Some(parse_time(&raw).with_context(|| format!("\"{}\" isn't a time", raw.trim()))?);
