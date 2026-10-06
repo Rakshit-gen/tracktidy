@@ -16,10 +16,14 @@ pub fn drop_spikes(gpx: &mut Gpx, max_speed: f64) -> usize {
         for seg in &mut track.segments {
             let mut kept: Vec<Point> = Vec::with_capacity(seg.points.len());
             for p in seg.points.drain(..) {
-                let bad = kept.last().is_some_and(|last: &Point| match (last.time, p.time) {
-                    (Some(t0), Some(t1)) if t1 > t0 => last.pos.distance_to(p.pos) / (t1 - t0) > max_speed,
-                    _ => false,
-                });
+                let bad = kept
+                    .last()
+                    .is_some_and(|last: &Point| match (last.time, p.time) {
+                        (Some(t0), Some(t1)) if t1 > t0 => {
+                            last.pos.distance_to(p.pos) / (t1 - t0) > max_speed
+                        }
+                        _ => false,
+                    });
                 if bad {
                     dropped += 1;
                 } else {
@@ -37,13 +41,25 @@ pub fn drop_spikes(gpx: &mut Gpx, max_speed: f64) -> usize {
 /// Only the opening and closing stretches are cut: passing the start again
 /// in the middle of a loop is left alone. Returns how many points went.
 pub fn trim_ends(gpx: &mut Gpx, radius: f64) -> usize {
-    let all: Vec<&Point> = gpx.tracks.iter().flat_map(|t| &t.segments).flat_map(|s| &s.points).collect();
+    let all: Vec<&Point> = gpx
+        .tracks
+        .iter()
+        .flat_map(|t| &t.segments)
+        .flat_map(|s| &s.points)
+        .collect();
     let (Some(first), Some(last)) = (all.first().map(|p| p.pos), all.last().map(|p| p.pos)) else {
         return 0;
     };
     let total = all.len();
-    let head = all.iter().take_while(|p| p.pos.distance_to(first) < radius).count();
-    let tail = all.iter().rev().take_while(|p| p.pos.distance_to(last) < radius).count();
+    let head = all
+        .iter()
+        .take_while(|p| p.pos.distance_to(first) < radius)
+        .count();
+    let tail = all
+        .iter()
+        .rev()
+        .take_while(|p| p.pos.distance_to(last) < radius)
+        .count();
     let cut = |i: usize| i < head || i >= total.saturating_sub(tail);
     let mut i = 0;
     let mut dropped = 0;
@@ -145,12 +161,22 @@ mod tests {
     use crate::stats::tests::{north, track};
 
     fn norths(gpx: &Gpx) -> Vec<f64> {
-        gpx.tracks[0].segments[0].points.iter().map(|p| ((p.pos.lat - 51.5) * 111_195.0).round()).collect()
+        gpx.tracks[0].segments[0]
+            .points
+            .iter()
+            .map(|p| ((p.pos.lat - 51.5) * 111_195.0).round())
+            .collect()
     }
 
     #[test]
     fn drops_a_lone_spike() {
-        let mut gpx = track(&[(0.0, 0.0, 0.0), (3.0, 1.0, 0.0), (400.0, 2.0, 0.0), (9.0, 3.0, 0.0), (12.0, 4.0, 0.0)]);
+        let mut gpx = track(&[
+            (0.0, 0.0, 0.0),
+            (3.0, 1.0, 0.0),
+            (400.0, 2.0, 0.0),
+            (9.0, 3.0, 0.0),
+            (12.0, 4.0, 0.0),
+        ]);
         assert_eq!(drop_spikes(&mut gpx, 10.0), 1);
         assert_eq!(norths(&gpx), [0.0, 3.0, 9.0, 12.0]);
     }
@@ -176,7 +202,11 @@ mod tests {
     }
 
     fn line(metres: &[f64]) -> Gpx {
-        let pts: Vec<(f64, f64, f64)> = metres.iter().enumerate().map(|(i, &m)| (m, i as f64, 0.0)).collect();
+        let pts: Vec<(f64, f64, f64)> = metres
+            .iter()
+            .enumerate()
+            .map(|(i, &m)| (m, i as f64, 0.0))
+            .collect();
         track(&pts)
     }
 
@@ -226,13 +256,24 @@ mod tests {
 
     #[test]
     fn leaves_a_short_stop() {
-        let mut gpx = track(&[(0.0, 0.0, 0.0), (1.0, 5.0, 0.0), (2.0, 10.0, 0.0), (30.0, 20.0, 0.0)]);
+        let mut gpx = track(&[
+            (0.0, 0.0, 0.0),
+            (1.0, 5.0, 0.0),
+            (2.0, 10.0, 0.0),
+            (30.0, 20.0, 0.0),
+        ]);
         assert_eq!(collapse_pauses(&mut gpx, 5.0, 30.0), 0);
     }
 
     #[test]
     fn drops_repeated_and_backwards_times() {
-        let mut gpx = track(&[(0.0, 0.0, 0.0), (3.0, 1.0, 0.0), (3.0, 1.0, 0.0), (5.0, 0.5, 0.0), (6.0, 2.0, 0.0)]);
+        let mut gpx = track(&[
+            (0.0, 0.0, 0.0),
+            (3.0, 1.0, 0.0),
+            (3.0, 1.0, 0.0),
+            (5.0, 0.5, 0.0),
+            (6.0, 2.0, 0.0),
+        ]);
         assert_eq!(drop_time_glitches(&mut gpx), 2);
         assert_eq!(norths(&gpx), [0.0, 3.0, 6.0]);
     }

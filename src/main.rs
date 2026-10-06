@@ -5,8 +5,8 @@ use clap::{Parser, Subcommand, ValueEnum};
 
 use tracktidy::clean;
 use tracktidy::geo::{LatLon, Unit};
-use tracktidy::splits::splits;
 use tracktidy::gpx::{Gpx, read_gpx, write_gpx};
+use tracktidy::splits::splits;
 use tracktidy::stats::{Settings, Stats, stats};
 
 #[derive(Parser)]
@@ -79,7 +79,10 @@ impl Sport {
             Sport::Run => 0.5,
             Sport::Ride => 1.0,
         };
-        Settings { min_moving_speed, ..Settings::default() }
+        Settings {
+            min_moving_speed,
+            ..Settings::default()
+        }
     }
 
     /// km/h. Generous on purpose: a sprint finish or a fast descent is real.
@@ -94,22 +97,41 @@ impl Sport {
 
 fn main() -> Result<()> {
     match Cli::parse().command {
-        Command::Stats { file, sport, miles, json } => {
+        Command::Stats {
+            file,
+            sport,
+            miles,
+            json,
+        } => {
             let gpx = load(&file)?;
             let s = stats(&gpx, &sport.settings());
             if json {
                 println!("{}", to_json(&s));
             } else {
-                print!("{}", describe(&s, if miles { Unit::Mile } else { Unit::Km }));
+                print!(
+                    "{}",
+                    describe(&s, if miles { Unit::Mile } else { Unit::Km })
+                );
             }
         }
-        Command::Clean { file, output, sport, max_speed, trim, home, home_radius, keep_pauses } => {
+        Command::Clean {
+            file,
+            output,
+            sport,
+            max_speed,
+            trim,
+            home,
+            home_radius,
+            keep_pauses,
+        } => {
             let mut gpx = load(&file)?;
             let settings = sport.settings();
             let max_speed = max_speed.unwrap_or(sport.max_speed());
             let before = stats(&gpx, &settings);
             if before.elapsed_s.is_none() {
-                eprintln!("This track has no times (a planned route?), so spikes and stops can't be told apart.");
+                eprintln!(
+                    "This track has no times (a planned route?), so spikes and stops can't be told apart."
+                );
             }
             let mut report = Vec::new();
             let mut note = |n: usize, what: &str| {
@@ -117,7 +139,10 @@ fn main() -> Result<()> {
                     report.push(format!("{n} {what}"));
                 }
             };
-            note(clean::drop_time_glitches(&mut gpx), "with repeated or backwards times");
+            note(
+                clean::drop_time_glitches(&mut gpx),
+                "with repeated or backwards times",
+            );
             note(clean::drop_spikes(&mut gpx, max_speed / 3.6), "GPS spikes");
             if !keep_pauses {
                 note(clean::collapse_pauses(&mut gpx, 5.0, 20.0), "from stops");
@@ -130,17 +155,27 @@ fn main() -> Result<()> {
             }
             clean::prune_empty(&mut gpx);
             if gpx.tracks.is_empty() {
-                anyhow::bail!("cleaning removed every point, so nothing was written; try a smaller --trim or --home-radius");
+                anyhow::bail!(
+                    "cleaning removed every point, so nothing was written; try a smaller --trim or --home-radius"
+                );
             }
             let after = stats(&gpx, &settings);
             if report.is_empty() {
                 eprintln!("Nothing to clean.");
             } else {
-                eprintln!("Removed {} of {} points:", before.points - after.points, before.points);
+                eprintln!(
+                    "Removed {} of {} points:",
+                    before.points - after.points,
+                    before.points
+                );
                 for line in &report {
                     eprintln!("  {line}");
                 }
-                eprintln!("Distance {:.2} km, was {:.2} km.", after.distance_m / 1000.0, before.distance_m / 1000.0);
+                eprintln!(
+                    "Distance {:.2} km, was {:.2} km.",
+                    after.distance_m / 1000.0,
+                    before.distance_m / 1000.0
+                );
             }
             let output = output.unwrap_or_else(|| file.with_extension("clean.gpx"));
             std::fs::write(&output, write_gpx(&gpx))
@@ -152,7 +187,10 @@ fn main() -> Result<()> {
             let gpx = load(&file)?;
             let list = splits(&gpx, unit.metres());
             if list.is_empty() {
-                anyhow::bail!("{} has no timed points, so there is nothing to split", file.display());
+                anyhow::bail!(
+                    "{} has no timed points, so there is nothing to split",
+                    file.display()
+                );
             }
             let mut covered = 0.0;
             for s in &list {
@@ -174,7 +212,8 @@ fn main() -> Result<()> {
 
 /// "51.5074,-0.1278" with optional spaces after the comma.
 fn parse_latlon(s: &str) -> Result<LatLon, String> {
-    let bad = || format!("expected \"lat,lon\" in decimal degrees, like 51.5074,-0.1278, not \"{s}\"");
+    let bad =
+        || format!("expected \"lat,lon\" in decimal degrees, like 51.5074,-0.1278, not \"{s}\"");
     let (lat, lon) = s.split_once(',').ok_or_else(bad)?;
     let lat: f64 = lat.trim().parse().map_err(|_| bad())?;
     let lon: f64 = lon.trim().parse().map_err(|_| bad())?;
@@ -185,7 +224,8 @@ fn parse_latlon(s: &str) -> Result<LatLon, String> {
 }
 
 fn load(path: &Path) -> Result<Gpx> {
-    let text = std::fs::read_to_string(path).with_context(|| format!("couldn't read {}", path.display()))?;
+    let text = std::fs::read_to_string(path)
+        .with_context(|| format!("couldn't read {}", path.display()))?;
     read_gpx(&text).with_context(|| format!("couldn't read {} as GPX", path.display()))
 }
 
@@ -193,7 +233,11 @@ fn load(path: &Path) -> Result<Gpx> {
 fn clock(seconds: f64) -> String {
     let s = seconds.round() as u64;
     let (h, m, s) = (s / 3600, s % 3600 / 60, s % 60);
-    if h > 0 { format!("{h}:{m:02}:{s:02}") } else { format!("{m}:{s:02}") }
+    if h > 0 {
+        format!("{h}:{m:02}:{s:02}")
+    } else {
+        format!("{m}:{s:02}")
+    }
 }
 
 fn to_json(s: &Stats) -> String {
@@ -224,8 +268,16 @@ fn describe(s: &Stats, unit: Unit) -> String {
         }
     }
     if let (Some(gain), Some(loss)) = (s.gain_m, s.loss_m) {
-        let (f, h) = if unit == Unit::Mile { (3.28084, "ft") } else { (1.0, "m") };
-        out += &format!("Climb      {:.0} {h} up, {:.0} {h} down\n", gain * f, loss * f);
+        let (f, h) = if unit == Unit::Mile {
+            (3.28084, "ft")
+        } else {
+            (1.0, "m")
+        };
+        out += &format!(
+            "Climb      {:.0} {h} up, {:.0} {h} down\n",
+            gain * f,
+            loss * f
+        );
     }
     if let Some(top) = s.max_speed {
         let (speed, speed_label) = match unit {

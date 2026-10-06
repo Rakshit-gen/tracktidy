@@ -64,8 +64,14 @@ mod tests {
     #[test]
     fn short_hops_are_exact_enough() {
         // London to Paris is about 343.5 km.
-        let london = LatLon { lat: 51.5074, lon: -0.1278 };
-        let paris = LatLon { lat: 48.8566, lon: 2.3522 };
+        let london = LatLon {
+            lat: 51.5074,
+            lon: -0.1278,
+        };
+        let paris = LatLon {
+            lat: 48.8566,
+            lon: 2.3522,
+        };
         assert!((london.distance_to(paris) / 1000.0 - 343.5).abs() < 1.0);
         assert_eq!(london.distance_to(london), 0.0);
     }

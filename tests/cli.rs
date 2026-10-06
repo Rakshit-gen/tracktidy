@@ -4,7 +4,10 @@ use std::process::{Command, Output};
 const SAMPLE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/examples/sample-run.gpx");
 
 fn run(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_tracktidy")).args(args).output().unwrap()
+    Command::new(env!("CARGO_BIN_EXE_tracktidy"))
+        .args(args)
+        .output()
+        .unwrap()
 }
 
 fn text(bytes: &[u8]) -> String {
@@ -39,7 +42,11 @@ fn clean_removes_the_spike_and_the_stop() {
 #[test]
 fn clean_keeps_heart_rate() {
     let path = scratch("hr.gpx");
-    assert!(run(&["clean", SAMPLE, "-o", path.to_str().unwrap()]).status.success());
+    assert!(
+        run(&["clean", SAMPLE, "-o", path.to_str().unwrap()])
+            .status
+            .success()
+    );
     let gpx = std::fs::read_to_string(path).unwrap();
     assert!(gpx.contains("xmlns:gpxtpx="));
     assert!(gpx.contains("<gpxtpx:hr>"));
@@ -71,13 +78,23 @@ fn a_missing_file_says_so() {
 #[test]
 fn stats_as_json() {
     let s = text(&run(&["stats", SAMPLE, "--json"]).stdout);
-    assert!(s.starts_with("{\"points\":556,\"distance_m\":6027.1,"), "{s}");
+    assert!(
+        s.starts_with("{\"points\":556,\"distance_m\":6027.1,"),
+        "{s}"
+    );
 }
 
 #[test]
 fn cleaning_away_everything_writes_nothing() {
     let path = scratch("empty.gpx");
-    let out = run(&["clean", SAMPLE, "--trim", "5000", "-o", path.to_str().unwrap()]);
+    let out = run(&[
+        "clean",
+        SAMPLE,
+        "--trim",
+        "5000",
+        "-o",
+        path.to_str().unwrap(),
+    ]);
     assert!(!out.status.success());
     assert!(text(&out.stderr).contains("removed every point"));
     assert!(!path.exists());

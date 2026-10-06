@@ -26,7 +26,10 @@ impl Rng {
     }
 }
 
-const CENTRE: LatLon = LatLon { lat: 51.5073, lon: -0.1657 };
+const CENTRE: LatLon = LatLon {
+    lat: 51.5073,
+    lon: -0.1657,
+};
 const M_PER_DEG_LAT: f64 = 111_195.0;
 
 fn offset(east: f64, north: f64) -> LatLon {

@@ -1,8 +1,8 @@
 //! Reading and writing GPX files.
 
 use anyhow::{Context, Result, bail};
-use quick_xml::{Reader, XmlVersion};
 use quick_xml::events::{BytesStart, Event};
+use quick_xml::{Reader, XmlVersion};
 
 use crate::geo::LatLon;
 use crate::time::{Seconds, parse_time};
@@ -45,11 +45,17 @@ pub struct Gpx {
 }
 
 fn coord(start: &BytesStart, key: &[u8]) -> Result<f64> {
-    let attr = start
-        .try_get_attribute(key)?
-        .with_context(|| format!("a track point has no {} attribute", String::from_utf8_lossy(key)))?;
+    let attr = start.try_get_attribute(key)?.with_context(|| {
+        format!(
+            "a track point has no {} attribute",
+            String::from_utf8_lossy(key)
+        )
+    })?;
     let value = attr.normalized_value(XmlVersion::Explicit1_0)?;
-    value.trim().parse().with_context(|| format!("\"{value}\" isn't a coordinate"))
+    value
+        .trim()
+        .parse()
+        .with_context(|| format!("\"{value}\" isn't a coordinate"))
 }
 
 fn start_point(start: &BytesStart) -> Result<Point> {
@@ -118,15 +124,22 @@ pub fn read_gpx(text: &str) -> Result<Gpx> {
             _ => {}
         }
         match event {
-            Event::Start(e) | Event::Empty(e) if e.local_name().as_ref() == b"trk" => gpx.tracks.push(Track::default()),
+            Event::Start(e) | Event::Empty(e) if e.local_name().as_ref() == b"trk" => {
+                gpx.tracks.push(Track::default())
+            }
             // A route is a planned line with no recording breaks, so it reads
             // as a track with one segment.
-            Event::Start(e) | Event::Empty(e) if e.local_name().as_ref() == b"rte" => gpx.tracks.push(Track {
-                name: None,
-                segments: vec![Segment::default()],
-            }),
+            Event::Start(e) | Event::Empty(e) if e.local_name().as_ref() == b"rte" => {
+                gpx.tracks.push(Track {
+                    name: None,
+                    segments: vec![Segment::default()],
+                })
+            }
             Event::Start(e) if e.local_name().as_ref() == b"trkseg" => {
-                let track = gpx.tracks.last_mut().context("a track segment sits outside any track")?;
+                let track = gpx
+                    .tracks
+                    .last_mut()
+                    .context("a track segment sits outside any track")?;
                 track.segments.push(Segment::default());
             }
             Event::Start(e) if is_point(&e) => point = Some(start_point(&e)?),
@@ -144,7 +157,9 @@ pub fn read_gpx(text: &str) -> Result<Gpx> {
                 open.pop();
                 let raw = text.decode()?;
                 let p = point.as_mut().unwrap();
-                p.time = Some(parse_time(&raw).with_context(|| format!("\"{}\" isn't a time", raw.trim()))?);
+                p.time = Some(
+                    parse_time(&raw).with_context(|| format!("\"{}\" isn't a time", raw.trim()))?,
+                );
             }
             Event::Start(e) if point.is_some() && e.local_name().as_ref() == b"extensions" => {
                 let text = reader.read_text(e.name())?;
@@ -163,7 +178,10 @@ pub fn read_gpx(text: &str) -> Result<Gpx> {
                 // quick-xml stops quietly at the end of the text even with tags
                 // still open. That's what a file cut off mid-save looks like.
                 if let Some(tag) = open.last() {
-                    bail!("the file ends before </{}>; it looks cut off", String::from_utf8_lossy(tag));
+                    bail!(
+                        "the file ends before </{}>; it looks cut off",
+                        String::from_utf8_lossy(tag)
+                    );
                 }
                 break;
             }
@@ -201,7 +219,10 @@ pub fn write_gpx(gpx: &Gpx) -> String {
     }
     out += ">\n";
     if let Some(name) = &gpx.name {
-        out += &format!("  <metadata>\n    <name>{}</name>\n  </metadata>\n", escape(name.as_str()));
+        out += &format!(
+            "  <metadata>\n    <name>{}</name>\n  </metadata>\n",
+            escape(name.as_str())
+        );
     }
     for track in &gpx.tracks {
         out += "  <trk>\n";
@@ -211,7 +232,10 @@ pub fn write_gpx(gpx: &Gpx) -> String {
         for segment in &track.segments {
             out += "    <trkseg>\n";
             for p in &segment.points {
-                out += &format!("      <trkpt lat=\"{:.7}\" lon=\"{:.7}\">", p.pos.lat, p.pos.lon);
+                out += &format!(
+                    "      <trkpt lat=\"{:.7}\" lon=\"{:.7}\">",
+                    p.pos.lat, p.pos.lon
+                );
                 if let Some(ele) = p.ele {
                     out += &format!("<ele>{ele:.1}</ele>");
                 }
@@ -268,7 +292,13 @@ mod tests {
         let first = &track.segments[0].points[0];
         assert_eq!(first.ele, Some(12.4));
         assert_eq!(first.time, crate::time::parse_time("2024-05-01T12:00:00Z"));
-        assert!(first.extensions.as_deref().unwrap().contains("<gpxtpx:hr>131</gpxtpx:hr>"));
+        assert!(
+            first
+                .extensions
+                .as_deref()
+                .unwrap()
+                .contains("<gpxtpx:hr>131</gpxtpx:hr>")
+        );
         assert_eq!(track.segments[0].points[1].ele, None);
         assert_eq!(track.segments[1].points[0].time, None);
     }
@@ -277,7 +307,11 @@ mod tests {
     fn writes_what_it_read() {
         let gpx = read_gpx(GARMIN).unwrap();
         let written = write_gpx(&gpx);
-        assert!(written.contains("xmlns:gpxtpx=\"http://www.garmin.com/xmlschemas/TrackPointExtension/v1\""));
+        assert!(
+            written.contains(
+                "xmlns:gpxtpx=\"http://www.garmin.com/xmlschemas/TrackPointExtension/v1\""
+            )
+        );
         assert!(written.contains("<name>Lunch &amp; laps</name>"));
         assert_eq!(read_gpx(&written).unwrap(), gpx);
     }
@@ -285,14 +319,24 @@ mod tests {
     #[test]
     fn explains_bad_files() {
         let err = |s: &str| read_gpx(s).unwrap_err().to_string();
-        assert!(err(r#"<gpx><trk><trkseg><trkpt lon="1"/></trkseg></trk></gpx>"#).contains("no lat"));
-        assert!(err(r#"<gpx><trk><trkseg><trkpt lat="95" lon="1"/></trkseg></trk></gpx>"#).contains("off the map"));
-        assert!(err(r#"<gpx><trk><trkpt lat="1" lon="1"/></trk></gpx>"#).contains("outside any track segment"));
+        assert!(
+            err(r#"<gpx><trk><trkseg><trkpt lon="1"/></trkseg></trk></gpx>"#).contains("no lat")
+        );
+        assert!(
+            err(r#"<gpx><trk><trkseg><trkpt lat="95" lon="1"/></trkseg></trk></gpx>"#)
+                .contains("off the map")
+        );
+        assert!(
+            err(r#"<gpx><trk><trkpt lat="1" lon="1"/></trk></gpx>"#)
+                .contains("outside any track segment")
+        );
         assert!(
             err(r#"<gpx><trk><trkseg><trkpt lat="1" lon="1"><time>soon</time></trkpt></trkseg></trk></gpx>"#)
                 .contains("\"soon\" isn't a time")
         );
-        assert!(err("<gpx><trk><trkseg><trkpt lat=\"1\" lon=\"1\">").contains("ends before </trkpt>"));
+        assert!(
+            err("<gpx><trk><trkseg><trkpt lat=\"1\" lon=\"1\">").contains("ends before </trkpt>")
+        );
     }
 
     #[test]

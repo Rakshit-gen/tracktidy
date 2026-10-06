@@ -44,7 +44,9 @@ fn top_speed(seg: &[Point], window: f64) -> Option<f64> {
         while j < seg.len() && seg[j].time.is_some_and(|tj| tj - ti < window) {
             j += 1;
         }
-        let Some(tj) = seg.get(j).and_then(|p| p.time) else { break };
+        let Some(tj) = seg.get(j).and_then(|p| p.time) else {
+            break;
+        };
         let speed = (along[j] - along[i]) / (tj - ti);
         best = Some(best.map_or(speed, |b| b.max(speed)));
     }
@@ -79,7 +81,9 @@ impl Default for Settings {
 
 /// Every segment of every track, as point slices.
 pub fn segments(gpx: &Gpx) -> impl Iterator<Item = &[Point]> {
-    gpx.tracks.iter().flat_map(|t| t.segments.iter().map(|s| s.points.as_slice()))
+    gpx.tracks
+        .iter()
+        .flat_map(|t| t.segments.iter().map(|s| s.points.as_slice()))
 }
 
 pub fn stats(gpx: &Gpx, settings: &Settings) -> Stats {
@@ -177,7 +181,10 @@ pub(crate) mod tests {
 
     #[test]
     fn adds_distance_and_time() {
-        let s = stats(&track(&[(0.0, 0.0, 10.0), (100.0, 30.0, 10.0), (250.0, 75.0, 10.0)]), &Settings::default());
+        let s = stats(
+            &track(&[(0.0, 0.0, 10.0), (100.0, 30.0, 10.0), (250.0, 75.0, 10.0)]),
+            &Settings::default(),
+        );
         assert!(close(s.distance_m, 250.0), "{}", s.distance_m);
         assert_eq!(s.elapsed_s, Some(75.0));
         assert_eq!(s.moving_s, Some(75.0));
@@ -188,7 +195,13 @@ pub(crate) mod tests {
     fn leaves_stops_out_of_moving_time() {
         // 60 s standing at a crossing with a metre of drift, then a 5 minute gap.
         let s = stats(
-            &track(&[(0.0, 0.0, 0.0), (100.0, 30.0, 0.0), (101.0, 90.0, 0.0), (200.0, 120.0, 0.0), (300.0, 420.0, 0.0)]),
+            &track(&[
+                (0.0, 0.0, 0.0),
+                (100.0, 30.0, 0.0),
+                (101.0, 90.0, 0.0),
+                (200.0, 120.0, 0.0),
+                (300.0, 420.0, 0.0),
+            ]),
             &Settings::default(),
         );
         assert_eq!(s.moving_s, Some(60.0));
@@ -197,11 +210,24 @@ pub(crate) mod tests {
 
     #[test]
     fn ignores_elevation_wobble() {
-        let flat: Vec<(f64, f64, f64)> =
-            (0..50).map(|i| (i as f64 * 5.0, i as f64, if i % 2 == 0 { 20.0 } else { 21.8 })).collect();
+        let flat: Vec<(f64, f64, f64)> = (0..50)
+            .map(|i| {
+                (
+                    i as f64 * 5.0,
+                    i as f64,
+                    if i % 2 == 0 { 20.0 } else { 21.8 },
+                )
+            })
+            .collect();
         let s = stats(&track(&flat), &Settings::default());
         assert_eq!(s.gain_m, Some(0.0));
-        let hill = track(&[(0.0, 0.0, 10.0), (1.0, 1.0, 12.0), (2.0, 2.0, 15.0), (3.0, 3.0, 25.0), (4.0, 4.0, 11.0)]);
+        let hill = track(&[
+            (0.0, 0.0, 10.0),
+            (1.0, 1.0, 12.0),
+            (2.0, 2.0, 15.0),
+            (3.0, 3.0, 25.0),
+            (4.0, 4.0, 11.0),
+        ]);
         let s = stats(&hill, &Settings::default());
         assert_eq!(s.gain_m, Some(15.0));
         assert_eq!(s.loss_m, Some(14.0));
@@ -210,7 +236,8 @@ pub(crate) mod tests {
     #[test]
     fn top_speed_needs_ten_seconds() {
         // Steady 3 m/s with one bogus 50 m jump over a single second.
-        let mut pts: Vec<(f64, f64, f64)> = (0..30).map(|i| (i as f64 * 3.0, i as f64, 0.0)).collect();
+        let mut pts: Vec<(f64, f64, f64)> =
+            (0..30).map(|i| (i as f64 * 3.0, i as f64, 0.0)).collect();
         for p in pts.iter_mut().skip(15) {
             p.0 += 50.0;
         }
@@ -229,6 +256,9 @@ pub(crate) mod tests {
         }
         let s = stats(&gpx, &Settings::default());
         assert!(close(s.distance_m, 500.0));
-        assert_eq!((s.elapsed_s, s.moving_s, s.gain_m, s.max_speed), (None, None, None, None));
+        assert_eq!(
+            (s.elapsed_s, s.moving_s, s.gain_m, s.max_speed),
+            (None, None, None, None)
+        );
     }
 }
