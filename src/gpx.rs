@@ -13,6 +13,10 @@ pub struct Point {
     pub pos: LatLon,
     pub ele: Option<f64>,
     pub time: Option<Seconds>,
+    /// The raw XML inside the point's <extensions>, where watches keep heart
+    /// rate, cadence and temperature. Kept as is so cleaning a file doesn't
+    /// throw that data away.
+    pub extensions: Option<String>,
 }
 
 /// A stretch of recording without a break. Devices start a new segment when
@@ -53,7 +57,12 @@ fn start_point(start: &BytesStart) -> Result<Point> {
     if !(-90.0..=90.0).contains(&pos.lat) || !(-180.0..=180.0).contains(&pos.lon) {
         bail!("a track point is off the map: {}, {}", pos.lat, pos.lon);
     }
-    Ok(Point { pos, ele: None, time: None })
+    Ok(Point {
+        pos,
+        ele: None,
+        time: None,
+        extensions: None,
+    })
 }
 
 pub fn read_gpx(text: &str) -> Result<Gpx> {
@@ -120,6 +129,14 @@ pub fn read_gpx(text: &str) -> Result<Gpx> {
                 let raw = text.decode()?;
                 let p = point.as_mut().unwrap();
                 p.time = Some(parse_time(&raw).with_context(|| format!("\"{}\" isn't a time", raw.trim()))?);
+            }
+            Event::Start(e) if point.is_some() && e.local_name().as_ref() == b"extensions" => {
+                let text = reader.read_text(e.name())?;
+                open.pop();
+                let raw = text.decode()?.trim().to_string();
+                if !raw.is_empty() {
+                    point.as_mut().unwrap().extensions = Some(raw);
+                }
             }
             Event::End(e) if e.local_name().as_ref() == b"trkpt" => {
                 if let Some(p) = point.take() {
