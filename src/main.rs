@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
-use tracktidy::gpx::{Gpx, read_gpx};
+use tracktidy::clean;
+use tracktidy::gpx::{Gpx, read_gpx, write_gpx};
 use tracktidy::stats::{Settings, Stats, stats};
 
 #[derive(Parser)]
@@ -19,6 +20,22 @@ enum Command {
     Stats {
         file: PathBuf,
     },
+    /// Remove GPS spikes, stops and the private ends of a track
+    Clean {
+        file: PathBuf,
+        /// Where to write the result [default: next to the input, as NAME.clean.gpx]
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// Fastest believable speed in km/h; faster jumps are dropped as spikes
+        #[arg(long, default_value_t = 45.0)]
+        max_speed: f64,
+        /// Cut this many metres off the start and end of the track
+        #[arg(long, default_value_t = 0.0)]
+        trim: f64,
+        /// Leave stops as they are instead of collapsing them
+        #[arg(long)]
+        keep_pauses: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -26,6 +43,21 @@ fn main() -> Result<()> {
         Command::Stats { file } => {
             let gpx = load(&file)?;
             print!("{}", describe(&stats(&gpx, &Settings::default())));
+        }
+        Command::Clean { file, output, max_speed, trim, keep_pauses } => {
+            let mut gpx = load(&file)?;
+            clean::drop_time_glitches(&mut gpx);
+            clean::drop_spikes(&mut gpx, max_speed / 3.6);
+            if !keep_pauses {
+                clean::collapse_pauses(&mut gpx, 5.0, 20.0);
+            }
+            if trim > 0.0 {
+                clean::trim_ends(&mut gpx, trim);
+            }
+            let output = output.unwrap_or_else(|| file.with_extension("clean.gpx"));
+            std::fs::write(&output, write_gpx(&gpx))
+                .with_context(|| format!("couldn't write {}", output.display()))?;
+            eprintln!("Wrote {}", output.display());
         }
     }
     Ok(())
