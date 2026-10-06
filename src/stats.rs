@@ -17,6 +17,38 @@ pub struct Stats {
     /// Metres climbed and descended. None when no point has an elevation.
     pub gain_m: Option<f64>,
     pub loss_m: Option<f64>,
+    /// Fastest speed held over at least ten seconds, in metres per second.
+    /// Point-to-point speed jumps around too much to be worth reporting.
+    pub max_speed: Option<f64>,
+}
+
+/// Seconds a speed has to be held to count as the top speed.
+const TOP_SPEED_WINDOW_S: f64 = 10.0;
+
+/// The fastest average speed over any stretch of at least `window` seconds,
+/// using two pointers over the segment's running distance.
+fn top_speed(seg: &[Point], window: f64) -> Option<f64> {
+    let mut along = Vec::with_capacity(seg.len());
+    let mut total = 0.0;
+    for (i, p) in seg.iter().enumerate() {
+        if i > 0 {
+            total += seg[i - 1].pos.distance_to(p.pos);
+        }
+        along.push(total);
+    }
+    let mut best: Option<f64> = None;
+    let mut j = 0;
+    for i in 0..seg.len() {
+        let Some(ti) = seg[i].time else { continue };
+        j = j.max(i + 1);
+        while j < seg.len() && seg[j].time.is_some_and(|tj| tj - ti < window) {
+            j += 1;
+        }
+        let Some(tj) = seg.get(j).and_then(|p| p.time) else { break };
+        let speed = (along[j] - along[i]) / (tj - ti);
+        best = Some(best.map_or(speed, |b| b.max(speed)));
+    }
+    best
 }
 
 /// Thresholds that depend on what kind of activity the track is.
@@ -60,6 +92,9 @@ pub fn stats(gpx: &Gpx, settings: &Settings) -> Stats {
     let mut last_time = None;
     for seg in segments(gpx) {
         s.points += seg.len();
+        if let Some(top) = top_speed(seg, TOP_SPEED_WINDOW_S) {
+            s.max_speed = Some(s.max_speed.map_or(top, |m| m.max(top)));
+        }
         for pair in seg.windows(2) {
             let d = pair[0].pos.distance_to(pair[1].pos);
             s.distance_m += d;
