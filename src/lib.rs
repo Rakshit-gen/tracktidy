@@ -3,3 +3,4 @@ pub mod geo;
 pub mod time;
 pub mod gpx;
 pub mod stats;
+pub mod clean;
