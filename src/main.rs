@@ -23,6 +23,9 @@ enum Command {
         file: PathBuf,
         #[arg(long, value_enum, default_value_t = Sport::Run)]
         sport: Sport,
+        /// Show distance and pace in miles
+        #[arg(long)]
+        miles: bool,
         /// Print the numbers as JSON, in metres and seconds
         #[arg(long)]
         json: bool,
@@ -91,13 +94,13 @@ impl Sport {
 
 fn main() -> Result<()> {
     match Cli::parse().command {
-        Command::Stats { file, sport, json } => {
+        Command::Stats { file, sport, miles, json } => {
             let gpx = load(&file)?;
             let s = stats(&gpx, &sport.settings());
             if json {
                 println!("{}", to_json(&s));
             } else {
-                print!("{}", describe(&s));
+                print!("{}", describe(&s, if miles { Unit::Mile } else { Unit::Km }));
             }
         }
         Command::Clean { file, output, sport, max_speed, trim, home, home_radius, keep_pauses } => {
@@ -203,23 +206,29 @@ fn to_json(s: &Stats) -> String {
     )
 }
 
-fn describe(s: &Stats) -> String {
-    let mut out = format!("Distance   {:.2} km\n", s.distance_m / 1000.0);
+fn describe(s: &Stats, unit: Unit) -> String {
+    let (per, label) = (unit.metres(), unit.label());
+    let mut out = format!("Distance   {:.2} {label}\n", s.distance_m / per);
     if let Some(elapsed) = s.elapsed_s {
         out += &format!("Elapsed    {}\n", clock(elapsed));
     }
     if let Some(moving) = s.moving_s {
         out += &format!("Moving     {}\n", clock(moving));
         if moving > 0.0 {
-            let pace = moving / (s.distance_m / 1000.0);
-            out += &format!("Pace       {} /km moving\n", clock(pace));
+            let pace = moving / (s.distance_m / per);
+            out += &format!("Pace       {} /{label} moving\n", clock(pace));
         }
     }
     if let (Some(gain), Some(loss)) = (s.gain_m, s.loss_m) {
-        out += &format!("Climb      {gain:.0} m up, {loss:.0} m down\n");
+        let (f, h) = if unit == Unit::Mile { (3.28084, "ft") } else { (1.0, "m") };
+        out += &format!("Climb      {:.0} {h} up, {:.0} {h} down\n", gain * f, loss * f);
     }
     if let Some(top) = s.max_speed {
-        out += &format!("Top speed  {:.1} km/h over 10 s\n", top * 3.6);
+        let (speed, speed_label) = match unit {
+            Unit::Km => (top * 3.6, "km/h"),
+            Unit::Mile => (top * 3600.0 / per, "mph"),
+        };
+        out += &format!("Top speed  {speed:.1} {speed_label} over 10 s\n");
     }
     out += &format!("Points     {}\n", s.points);
     out
