@@ -22,6 +22,29 @@ impl LatLon {
     }
 }
 
+/// The distance unit people read their splits and pace in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Unit {
+    Km,
+    Mile,
+}
+
+impl Unit {
+    pub fn metres(self) -> f64 {
+        match self {
+            Unit::Km => 1000.0,
+            Unit::Mile => 1609.344,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Unit::Km => "km",
+            Unit::Mile => "mi",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
