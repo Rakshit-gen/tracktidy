@@ -46,13 +46,30 @@ fn main() -> Result<()> {
         }
         Command::Clean { file, output, max_speed, trim, keep_pauses } => {
             let mut gpx = load(&file)?;
-            clean::drop_time_glitches(&mut gpx);
-            clean::drop_spikes(&mut gpx, max_speed / 3.6);
+            let before = stats(&gpx, &Settings::default());
+            let mut report = Vec::new();
+            let mut note = |n: usize, what: &str| {
+                if n > 0 {
+                    report.push(format!("{n} {what}"));
+                }
+            };
+            note(clean::drop_time_glitches(&mut gpx), "with repeated or backwards times");
+            note(clean::drop_spikes(&mut gpx, max_speed / 3.6), "GPS spikes");
             if !keep_pauses {
-                clean::collapse_pauses(&mut gpx, 5.0, 20.0);
+                note(clean::collapse_pauses(&mut gpx, 5.0, 20.0), "from stops");
             }
             if trim > 0.0 {
-                clean::trim_ends(&mut gpx, trim);
+                note(clean::trim_ends(&mut gpx, trim), "near the start and end");
+            }
+            let after = stats(&gpx, &Settings::default());
+            if report.is_empty() {
+                eprintln!("Nothing to clean.");
+            } else {
+                eprintln!("Removed {} of {} points:", before.points - after.points, before.points);
+                for line in &report {
+                    eprintln!("  {line}");
+                }
+                eprintln!("Distance {:.2} km, was {:.2} km.", after.distance_m / 1000.0, before.distance_m / 1000.0);
             }
             let output = output.unwrap_or_else(|| file.with_extension("clean.gpx"));
             std::fs::write(&output, write_gpx(&gpx))
