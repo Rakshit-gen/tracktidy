@@ -5,7 +5,7 @@ use quick_xml::{Reader, XmlVersion};
 use quick_xml::events::{BytesStart, Event};
 
 use crate::geo::LatLon;
-use crate::time::Seconds;
+use crate::time::{Seconds, parse_time};
 
 /// One GPS fix.
 #[derive(Clone, Debug, PartialEq)]
@@ -65,6 +65,18 @@ pub fn read_gpx(text: &str) -> Result<Gpx> {
             }
             Event::Start(e) if e.local_name().as_ref() == b"trkpt" => point = Some(start_point(&e)?),
             Event::Empty(e) if e.local_name().as_ref() == b"trkpt" => push(&mut gpx, start_point(&e)?)?,
+            Event::Start(e) if point.is_some() && e.local_name().as_ref() == b"ele" => {
+                let text = reader.read_text(e.name())?;
+                let p = point.as_mut().unwrap();
+                // A blank or broken elevation is common in phone exports; treat it as missing.
+                p.ele = text.decode()?.trim().parse().ok();
+            }
+            Event::Start(e) if point.is_some() && e.local_name().as_ref() == b"time" => {
+                let text = reader.read_text(e.name())?;
+                let raw = text.decode()?;
+                let p = point.as_mut().unwrap();
+                p.time = Some(parse_time(&raw).with_context(|| format!("\"{}\" isn't a time", raw.trim()))?);
+            }
             Event::End(e) if e.local_name().as_ref() == b"trkpt" => {
                 if let Some(p) = point.take() {
                     push(&mut gpx, p)?;
