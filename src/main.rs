@@ -4,6 +4,8 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 use tracktidy::clean;
+use tracktidy::geo::Unit;
+use tracktidy::splits::splits;
 use tracktidy::gpx::{Gpx, read_gpx, write_gpx};
 use tracktidy::stats::{Settings, Stats, stats};
 
@@ -35,6 +37,13 @@ enum Command {
         /// Leave stops as they are instead of collapsing them
         #[arg(long)]
         keep_pauses: bool,
+    },
+    /// Time and pace for each kilometre or mile
+    Splits {
+        file: PathBuf,
+        /// Split by mile instead of kilometre
+        #[arg(long)]
+        miles: bool,
     },
 }
 
@@ -75,6 +84,27 @@ fn main() -> Result<()> {
             std::fs::write(&output, write_gpx(&gpx))
                 .with_context(|| format!("couldn't write {}", output.display()))?;
             eprintln!("Wrote {}", output.display());
+        }
+        Command::Splits { file, miles } => {
+            let unit = if miles { Unit::Mile } else { Unit::Km };
+            let gpx = load(&file)?;
+            let list = splits(&gpx, unit.metres());
+            if list.is_empty() {
+                anyhow::bail!("{} has no timed points, so there is nothing to split", file.display());
+            }
+            let mut covered = 0.0;
+            for s in &list {
+                covered += s.distance_m;
+                let pace = s.time_s / (s.distance_m / unit.metres());
+                println!(
+                    "{:>6.2} {}  {:>8}  {:>6} /{}",
+                    covered / unit.metres(),
+                    unit.label(),
+                    clock(s.time_s),
+                    clock(pace),
+                    unit.label()
+                );
+            }
         }
     }
     Ok(())
