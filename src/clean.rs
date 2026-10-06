@@ -108,6 +108,28 @@ pub fn collapse_pauses(gpx: &mut Gpx, radius: f64, min_s: f64) -> usize {
     dropped
 }
 
+/// Drops points whose time is the same as, or earlier than, the point
+/// before. Some watches write a fix twice after a pause, and a track merged
+/// from two files can step back in time; either breaks speed and pace.
+/// Points without a time are kept. Returns how many points went.
+pub fn drop_time_glitches(gpx: &mut Gpx) -> usize {
+    let mut dropped = 0;
+    for seg in gpx.tracks.iter_mut().flat_map(|t| &mut t.segments) {
+        let mut latest = f64::NEG_INFINITY;
+        let before = seg.points.len();
+        seg.points.retain(|p| match p.time {
+            Some(t) if t <= latest => false,
+            Some(t) => {
+                latest = t;
+                true
+            }
+            None => true,
+        });
+        dropped += before - seg.points.len();
+    }
+    dropped
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -197,5 +219,12 @@ mod tests {
     fn leaves_a_short_stop() {
         let mut gpx = track(&[(0.0, 0.0, 0.0), (1.0, 5.0, 0.0), (2.0, 10.0, 0.0), (30.0, 20.0, 0.0)]);
         assert_eq!(collapse_pauses(&mut gpx, 5.0, 30.0), 0);
+    }
+
+    #[test]
+    fn drops_repeated_and_backwards_times() {
+        let mut gpx = track(&[(0.0, 0.0, 0.0), (3.0, 1.0, 0.0), (3.0, 1.0, 0.0), (5.0, 0.5, 0.0), (6.0, 2.0, 0.0)]);
+        assert_eq!(drop_time_glitches(&mut gpx), 2);
+        assert_eq!(norths(&gpx), [0.0, 3.0, 6.0]);
     }
 }
