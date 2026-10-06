@@ -135,3 +135,100 @@ pub fn stats(gpx: &Gpx, settings: &Settings) -> Stats {
     }
     s
 }
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+    use crate::geo::LatLon;
+    use crate::gpx::{Segment, Track};
+
+    /// Metres north of a fixed spot, as degrees of latitude.
+    pub fn north(m: f64) -> LatLon {
+        LatLon {
+            lat: 51.5 + m / 111_195.0,
+            lon: -0.12,
+        }
+    }
+
+    /// A one-segment track from (metres north, seconds, elevation) triples.
+    pub fn track(points: &[(f64, f64, f64)]) -> Gpx {
+        Gpx {
+            tracks: vec![Track {
+                name: None,
+                segments: vec![Segment {
+                    points: points
+                        .iter()
+                        .map(|&(m, t, e)| Point {
+                            pos: north(m),
+                            ele: Some(e),
+                            time: Some(t),
+                            extensions: None,
+                        })
+                        .collect(),
+                }],
+            }],
+            ..Gpx::default()
+        }
+    }
+
+    fn close(a: f64, b: f64) -> bool {
+        (a - b).abs() < 0.5
+    }
+
+    #[test]
+    fn adds_distance_and_time() {
+        let s = stats(&track(&[(0.0, 0.0, 10.0), (100.0, 30.0, 10.0), (250.0, 75.0, 10.0)]), &Settings::default());
+        assert!(close(s.distance_m, 250.0), "{}", s.distance_m);
+        assert_eq!(s.elapsed_s, Some(75.0));
+        assert_eq!(s.moving_s, Some(75.0));
+        assert_eq!(s.points, 3);
+    }
+
+    #[test]
+    fn leaves_stops_out_of_moving_time() {
+        // 60 s standing at a crossing with a metre of drift, then a 5 minute gap.
+        let s = stats(
+            &track(&[(0.0, 0.0, 0.0), (100.0, 30.0, 0.0), (101.0, 90.0, 0.0), (200.0, 120.0, 0.0), (300.0, 420.0, 0.0)]),
+            &Settings::default(),
+        );
+        assert_eq!(s.moving_s, Some(60.0));
+        assert_eq!(s.elapsed_s, Some(420.0));
+    }
+
+    #[test]
+    fn ignores_elevation_wobble() {
+        let flat: Vec<(f64, f64, f64)> =
+            (0..50).map(|i| (i as f64 * 5.0, i as f64, if i % 2 == 0 { 20.0 } else { 21.8 })).collect();
+        let s = stats(&track(&flat), &Settings::default());
+        assert_eq!(s.gain_m, Some(0.0));
+        let hill = track(&[(0.0, 0.0, 10.0), (1.0, 1.0, 12.0), (2.0, 2.0, 15.0), (3.0, 3.0, 25.0), (4.0, 4.0, 11.0)]);
+        let s = stats(&hill, &Settings::default());
+        assert_eq!(s.gain_m, Some(15.0));
+        assert_eq!(s.loss_m, Some(14.0));
+    }
+
+    #[test]
+    fn top_speed_needs_ten_seconds() {
+        // Steady 3 m/s with one bogus 50 m jump over a single second.
+        let mut pts: Vec<(f64, f64, f64)> = (0..30).map(|i| (i as f64 * 3.0, i as f64, 0.0)).collect();
+        for p in pts.iter_mut().skip(15) {
+            p.0 += 50.0;
+        }
+        let s = stats(&track(&pts), &Settings::default());
+        let top = s.max_speed.unwrap();
+        assert!(top < 8.5, "{top}");
+        assert!(top > 3.0);
+    }
+
+    #[test]
+    fn handles_routes_without_times_or_elevation() {
+        let mut gpx = track(&[(0.0, 0.0, 0.0), (500.0, 0.0, 0.0)]);
+        for p in &mut gpx.tracks[0].segments[0].points {
+            p.time = None;
+            p.ele = None;
+        }
+        let s = stats(&gpx, &Settings::default());
+        assert!(close(s.distance_m, 500.0));
+        assert_eq!((s.elapsed_s, s.moving_s, s.gain_m, s.max_speed), (None, None, None, None));
+    }
+}
