@@ -74,8 +74,10 @@ pub fn parse_time(s: &str) -> Option<Seconds> {
 /// Formats seconds since the epoch back to "YYYY-MM-DDTHH:MM:SSZ", keeping
 /// milliseconds only when there are some.
 pub fn format_time(t: Seconds) -> String {
-    let whole = t.floor() as i64;
-    let millis = ((t - t.floor()) * 1000.0).round() as i64;
+    // Round to whole milliseconds first. Rounding only the fraction turned
+    // .9996 into 1000 milliseconds, printed as ".1000" on the same second.
+    let total = (t * 1000.0).round() as i64;
+    let (whole, millis) = (total.div_euclid(1000), total.rem_euclid(1000));
     let (days, secs) = (whole.div_euclid(86_400), whole.rem_euclid(86_400));
     // civil_from_days, the inverse of days_from_civil above.
     let z = days + 719_468;
@@ -153,5 +155,7 @@ mod tests {
         ] {
             assert_eq!(format_time(parse_time(s).unwrap()), s);
         }
+        let almost = parse_time("2024-05-01T07:02:03.9996Z").unwrap();
+        assert_eq!(format_time(almost), "2024-05-01T07:02:04Z");
     }
 }
