@@ -25,7 +25,14 @@ fn num<T: std::str::FromStr>(s: &str, range: std::ops::Range<usize>) -> Option<T
 /// what the GPX spec requires anyway; some phone apps just leave the Z off.
 pub fn parse_time(s: &str) -> Option<Seconds> {
     let s = s.trim();
-    if s.len() < 19 || &s[4..5] != "-" || &s[7..8] != "-" || !matches!(&s[10..11], "T" | " ") {
+    // Everything below slices by byte position, which panics in the middle
+    // of a multi-byte character. A real timestamp is all ASCII.
+    if !s.is_ascii()
+        || s.len() < 19
+        || &s[4..5] != "-"
+        || &s[7..8] != "-"
+        || !matches!(&s[10..11], "T" | " ")
+    {
         return None;
     }
     let (y, mo, d): (i64, u32, u32) = (num(s, 0..4)?, num(s, 5..7)?, num(s, 8..10)?);
@@ -130,6 +137,8 @@ mod tests {
             "2024-05-01T25:00:00Z",
             "2024-05-01T07:02:03.Z",
             "2024-05-01T07:02:03+2",
+            "2024é5-01T07:02:03Z",
+            "2024-05-01T07:02:03é",
         ] {
             assert_eq!(parse_time(s), None, "{s}");
         }
