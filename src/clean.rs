@@ -11,19 +11,28 @@ use crate::gpx::{Gpx, Point};
 /// Points without a time can't be judged and are kept. Returns how many
 /// points were dropped.
 pub fn drop_spikes(gpx: &mut Gpx, max_speed: f64) -> usize {
+    let too_fast = |a: &Point, b: &Point| match (a.time, b.time) {
+        (Some(t0), Some(t1)) if t1 > t0 => a.pos.distance_to(b.pos) / (t1 - t0) > max_speed,
+        _ => false,
+    };
     let mut dropped = 0;
     for track in &mut gpx.tracks {
         for seg in &mut track.segments {
+            // Everything is judged against the first point, so a bad first
+            // fix (common while the receiver is still finding satellites)
+            // would take the whole segment with it. Drop it instead when it
+            // can't reach any of the next three and they agree with each other.
+            while let [first, a, b, c, ..] = seg.points.as_slice()
+                && [a, b, c].iter().all(|p| too_fast(first, p))
+                && !too_fast(a, b)
+                && !too_fast(b, c)
+            {
+                seg.points.remove(0);
+                dropped += 1;
+            }
             let mut kept: Vec<Point> = Vec::with_capacity(seg.points.len());
             for p in seg.points.drain(..) {
-                let bad = kept
-                    .last()
-                    .is_some_and(|last: &Point| match (last.time, p.time) {
-                        (Some(t0), Some(t1)) if t1 > t0 => {
-                            last.pos.distance_to(p.pos) / (t1 - t0) > max_speed
-                        }
-                        _ => false,
-                    });
+                let bad = kept.last().is_some_and(|last| too_fast(last, &p));
                 if bad {
                     dropped += 1;
                 } else {
@@ -179,6 +188,19 @@ mod tests {
         ]);
         assert_eq!(drop_spikes(&mut gpx, 10.0), 1);
         assert_eq!(norths(&gpx), [0.0, 3.0, 9.0, 12.0]);
+    }
+
+    #[test]
+    fn a_bad_first_fix_does_not_take_the_track_with_it() {
+        let mut gpx = track(&[
+            (900.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0),
+            (3.0, 2.0, 0.0),
+            (6.0, 3.0, 0.0),
+            (9.0, 4.0, 0.0),
+        ]);
+        assert_eq!(drop_spikes(&mut gpx, 10.0), 1);
+        assert_eq!(norths(&gpx), [0.0, 3.0, 6.0, 9.0]);
     }
 
     #[test]
