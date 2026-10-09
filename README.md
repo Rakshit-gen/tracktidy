@@ -84,7 +84,8 @@ In order:
 
 1. Points whose time repeats or goes backwards are dropped.
 2. A point is a spike if reaching it from the last good point would take more than the speed limit. It is
-   dropped and the next point is checked against the same good point, so a run of bad fixes goes too.
+   dropped and the next point is checked against the same good point, so a run of bad fixes goes too. A first
+   point that is too far from each of the next three, while those three agree, is the bad one and goes instead.
 3. A stop is any stretch that stays within 5 m of where it began for 20 seconds or more. It keeps its first and
    last point, so the time is still there but the wandering is gone.
 4. `--trim` and `--home`, if given.
